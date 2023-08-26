@@ -1,0 +1,5 @@
+countdown-gtk
+
+Version 0.003
+
+* First public release

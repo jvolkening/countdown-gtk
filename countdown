@@ -1,0 +1,212 @@
+#!/usr/bin/perl
+
+# This little script is called with a timer length in minutes as the only
+# argument. It displays a countdown icon in the system tray indicating the
+# remaining fractional time, and pops up an alert message (and then quits)
+# when the timer expires.
+
+use strict;
+use warnings;
+use 5.012;
+
+our $VERSION = '0.003';
+
+my $pid = fork();
+exit if ($pid);
+
+use Gtk3 qw/-init/;
+use Glib qw/TRUE FALSE/;
+use Cairo;
+
+use constant PI => 4 * atan2(1,1);
+
+my $countdown = $ARGV[0] * 60 // 0;
+
+my $curr_time = 0;
+my $pb = draw_timer($curr_time/$countdown);
+my $icon = Gtk3::StatusIcon->new_from_pixbuf($pb);
+$icon->set_visible(1);
+$icon->signal_connect('button-press-event' => \&_handle_click);
+Glib::Timeout->add(
+    2000,
+    sub {
+        $curr_time += 2;
+        my $pb = draw_timer($curr_time/$countdown);
+        $icon->set_from_pixbuf($pb);
+        my $diff  = int( $countdown - $curr_time );
+        $icon->set_tooltip_text( format_time($diff) );
+        return TRUE if ($curr_time < $countdown);
+        alert_timeup();
+        Gtk3->main_quit;
+        return FALSE;
+    }
+);
+
+Gtk3->main;
+exit;
+
+sub _handle_click {
+
+    # a click on the tray icon closes the program
+    my ($wid, $ev) = @_;
+    if ($ev->button == 1) {
+        Gtk3->main_quit;
+        exit;
+    }
+
+}
+
+sub alert_timeup {
+
+    #$icon->set_blinking(TRUE);
+    my @msg = ( 'notify-send' => 
+        '-u' => 'critical',
+        '-t' => 0,
+        '-i' => 'info',
+        "Time's Up!",
+    );
+
+    system @msg;
+}
+
+sub draw_timer {
+
+    my ($frac) = @_;
+
+    my $surface = Cairo::ImageSurface->create('argb32',20,20);
+    my $cr = Cairo::Context->create($surface);
+    $cr->save;
+
+    #draw dark background
+    $cr->set_source_rgba(0.16, 0.33, 0.7, 1.0);
+    $cr->arc(10, 10, 10, 0, 2*PI);
+    $cr->fill;
+    $cr->restore;
+
+    # draw fractional arc
+    $cr->set_source_rgba(0.9, 0.9, 0.9, 1.0);
+    $cr->move_to(10, 10);
+    $cr->line_to(10, 0);
+    my $start = PI*3/2;
+    my $end = $start - PI*2* $frac ;
+    $cr->arc_negative(10, 10, 10, $start, $end);
+    $cr->close_path;
+    $cr->fill;
+    $cr->restore;
+    my $loader = Gtk3::Gdk::PixbufLoader->new;
+    $surface->write_to_png_stream(
+        sub {
+            my ($closure,$data) = @_;
+            # Gtk2 -> Gtk3 port fix from https://stackoverflow.com/questions/55168126
+            $loader->write( [map ord, split //, $data] );
+            return TRUE;
+        }
+    );
+    $loader->close;
+
+    my $pixbuf = $loader->get_pixbuf;
+    return $pixbuf;
+
+}
+
+sub format_time {
+
+    my ($s) = @_;
+
+    my $h = int($s/3600);
+    $s -= $h*3600;
+    my $m = int($s/60);
+    $s -= $m*60;
+    my $string = sprintf('%02d:%02d',$m,$s);
+    $string = "$h:" . $string
+        if ($h > 0);
+
+    return $string;
+
+}
+
+__END__
+
+
+=head1 NAME
+
+countdown - A simple tray/notify countdown timer using Gtk
+
+
+=head1 SYNOPSIS
+
+    countdown <minutes>
+
+
+=head1 DESCRIPTION
+
+B<countdown-gtk> is a simple Gtk-based countdown timer that puts a timer icon
+in the system tray and pops up a notification when the timer expires. That's
+it.
+
+
+=head1 INSTALLATION
+
+countdown-gtk is currently distributed as a single perl script along with associated
+documentation. If you are lucky, installation may be as simple as downloading
+the tarball, extracting, making the 'countdown' binary executable, and running it.
+It is also useful to add 'countdown' to your PATH, but the details of file
+permissions and environment variables will not be covered here.
+
+Some users, however, may need to install a few prerequisites before the script will
+run. The only dependency, besides a reasonably modern version of perl, is
+the GTK+ (v.3) graphics library and its Perl bindings.
+
+These are available from the package manager of most distributions. For
+example, on Debian they can be installed with (on a single line):
+
+    apt-get install libgtk3-perl 
+
+There is also now a Makefile.PL included with the distribution for those who
+prefer. All it does is to check the dependencies and copy the executable and
+manpage to an appropriate directory (wherever your copy of Perl is configured
+to install binaries from MakeMaker scripts). Install by:
+
+    perl Makefile.PL
+    make
+    make install
+
+Test your installation simply by running the program on the command line.
+
+
+=head1 COMMAND LINE ARGUMENTS
+
+The C<countdown> script takes a single, required argument, which is the
+number of minutes that the timer should run.
+
+
+=head1 LIMITATIONS AND BUGS
+
+Please report any bugs, unexpected behavior, or suggestions for improvement to
+the issue tracker and discussion forums of the project homepage
+(L<https://github.com/jvolkening/countdown-gtk>).
+
+
+=head1 AUTHOR
+
+Jeremy Volkening <jdvolkening@gmail.com>
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2023 Jeremy Volkening
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU General Public License for more
+details.
+
+You should have received a copy of the GNU General Public License along with
+this program.  If not, see <http://www.gnu.org/licenses/>.
+
+=cut
+
